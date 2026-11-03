@@ -1,0 +1,11 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "shiri",
+  "version": "0.1.0",
+  "description": "拾日 ArkTS 原生客户端",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.21"
+  },
+  "dynamicDependencies": {}
+}

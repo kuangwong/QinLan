@@ -1,0 +1,16 @@
+{
+  "name": "shiri-harmony-checks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:native": "node scripts/build-native.mjs",
+    "build:device-tests": "node scripts/build-native.mjs --device-tests",
+    "test": "node scripts/test-domain.mjs",
+    "check:project": "node scripts/check-project.mjs"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  },
+  "packageManager": "pnpm@11.25.0"
+}

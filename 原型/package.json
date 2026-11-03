@@ -1,0 +1,24 @@
+{
+  "name": "shiri-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build && node scripts/build-standalone.mjs",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test --test-isolation=none tests/*.test.mjs"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "happy-dom": "20.11.6",
+    "typescript": "6.0.3",
+    "vite": "6.4.3"
+  },
+  "packageManager": "pnpm@11.25.0"
+}

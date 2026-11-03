@@ -1,0 +1,10 @@
+{
+  "module": {
+    "name": "entry_test",
+    "type": "feature",
+    "description": "拾日设备平台测试",
+    "deviceTypes": ["phone", "tablet"],
+    "deliveryWithInstall": true,
+    "installationFree": false
+  }
+}
