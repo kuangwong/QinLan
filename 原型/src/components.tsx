@@ -1,10 +1,13 @@
 import { ChevronLeft, ChevronRight, X } from './icons';
-import { useEffect, useRef } from 'react';
+import { createContext, useContext, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { dateKey, people, today } from './data';
+import type { Person } from './data';
+
+export const PeopleContext = createContext<Person[]>(people);
 
 export function Avatar({ id, small = false }: { id: string; small?: boolean }) {
-  const person = people.find(p => p.id === id);
+  const person = useContext(PeopleContext).find(p => p.id === id);
   return <span className={`avatar ${person?.color || 'sage'} ${small ? 'small' : ''}`} title={person?.name || '未分配'}>{person?.name.slice(-1) || '？'}</span>;
 }
 export function Modal({ title, subtitle, children, onClose, wide = false }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void; wide?: boolean }) {

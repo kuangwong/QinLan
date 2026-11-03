@@ -16,7 +16,9 @@ await new Promise((resolve, reject) => probe.close(error => error ? reject(error
 const password = randomBytes(24).toString('hex'); const database = `shiri_test_${randomUUID().replaceAll('-', '')}`;
 const logs = [];
 const postgres = new EmbeddedPostgres({ databaseDir: join(directory, 'data'), port, user: 'postgres', password,
-  persistent: false, autoRehydrateSymlinks: true, initdbFlags: ['--locale=C', '--encoding=UTF8'],
+  // Own cleanup here: on Windows the child process can release directory
+  // handles shortly after its parent exits. The library deletes without retries.
+  persistent: true, autoRehydrateSymlinks: true, initdbFlags: ['--locale=C', '--encoding=UTF8'],
   postgresFlags: ['-h', '127.0.0.1', '-k', directory], onLog: message => logs.push(message), onError: error => logs.push(String(error)) });
 let started = false;
 try {
@@ -35,5 +37,5 @@ try {
   console.error(error, logs.slice(-15).join('\n')); process.exitCode = 1;
 } finally {
   if (started) await postgres.stop();
-  await rm(directory, { recursive: true, force: true });
+  await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }

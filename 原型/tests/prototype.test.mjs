@@ -14,6 +14,11 @@ async function open(saved) {
   window.document.body.innerHTML = '<div id="root"></div>';
   window.eval(code);
   for (let i = 0; i < 50; i++) {
+    const demo = [...window.document.querySelectorAll('button')].find(button => button.textContent === '先体验本地演示');
+    if (demo) { demo.click(); break; }
+    await pause(20);
+  }
+  for (let i = 0; i < 50; i++) {
     if (window.document.querySelector('h1') && window.localStorage.getItem(key)) break;
     await pause(20);
   }
