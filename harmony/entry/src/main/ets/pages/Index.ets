@@ -104,6 +104,9 @@ struct Index {
         this.data = await this.client.state(); this.online = true; this.ready = true; this.refreshRequired = false;
         this.resetView(); this.startPolling();
         await this.refreshReminders();
+      } else {
+        // Scheduled reminders outlive the process and its expired login session.
+        await this.refreshReminders();
       }
     } catch (error) { this.error = (error as Error).message || '无法连接服务，请检查网络后重试'; }
     finally { this.busy = false; }
@@ -440,6 +443,7 @@ struct Index {
     const date = new Date(this.year, this.month + offset, 1);
     this.year = date.getFullYear(); this.month = date.getMonth();
     this.selectedDay = dateKey(date);
+    if (this.online) this.refreshOnline();
   }
 
   @Builder
@@ -605,11 +609,19 @@ struct Index {
       })
     MonthCalendar({ year: this.year, month: this.month, selected: this.selectedDay,
       dates: this.records().map((record: NameRecord) => record.date),
-      onSelect: (day: string) => { this.selectedDay = day; this.year = Number(day.slice(0, 4)); this.month = Number(day.slice(5, 7)) - 1; },
+      onSelect: (day: string) => {
+        const changedMonth = this.year !== Number(day.slice(0, 4)) || this.month !== Number(day.slice(5, 7)) - 1;
+        this.selectedDay = day; this.year = Number(day.slice(0, 4)); this.month = Number(day.slice(5, 7)) - 1;
+        if (changedMonth && this.online) this.refreshOnline();
+      },
       onMove: (offset: number) => this.moveMonth(offset) })
     Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(12), cross: LengthMetrics.vp(8) } }) {
       Text(this.selectedDay).fontSize(18).fontColor('#343B36')
-      this.secondary('回到今天', () => { this.selectedDay = dateKey(); this.year = new Date().getFullYear(); this.month = new Date().getMonth(); })
+      this.secondary('回到今天', () => {
+        const today = new Date();
+        this.selectedDay = dateKey(today); this.year = today.getFullYear(); this.month = today.getMonth();
+        if (this.online) this.refreshOnline();
+      })
     }.width('100%')
     ForEach(this.records().filter((record: NameRecord) => record.date === this.selectedDay), (record: NameRecord) => {
       this.recordCard(record)

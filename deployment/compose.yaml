@@ -1,0 +1,115 @@
+name: shiri
+
+x-database-environment: &database-environment
+  DATABASE_URL: postgres://shiri:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deployment/.env}@db:5432/shiri
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: shiri
+      POSTGRES_DB: shiri
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deployment/.env}
+    volumes:
+      - database:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U shiri -d shiri']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    image: shiri-api:local
+    build: ../server
+    restart: 'no'
+    environment: *database-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      - node
+      - --input-type=module
+      - -e
+      - "import { Pool } from 'pg'; import { migrate } from './dist/db.js'; const pool = new Pool({ connectionString: process.env.DATABASE_URL }); try { await migrate(pool); console.log('数据库迁移完成'); } finally { await pool.end(); }"
+
+  api:
+    image: shiri-api:local
+    build: ../server
+    restart: unless-stopped
+    environment:
+      <<: *database-environment
+      HOST: 0.0.0.0
+      PORT: '3000'
+      TRUST_PROXY: '1'
+      CORS_ORIGINS: https://${SHIRI_DOMAIN:?Set SHIRI_DOMAIN in deployment/.env}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/health').then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    image: shiri-web:local
+    build: ../原型
+    restart: unless-stopped
+    environment:
+      SHIRI_DOMAIN: ${SHIRI_DOMAIN:?Set SHIRI_DOMAIN in deployment/.env}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in deployment/.env}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - certificates:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+
+  backup:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGUSER: shiri
+      PGDATABASE: shiri
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deployment/.env}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    entrypoint: ['/bin/sh', '/scripts/backup.sh', 'loop']
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+
+  restore-check:
+    image: postgres:18-alpine
+    profiles: ['restore-check']
+    environment:
+      POSTGRES_USER: shiri
+      POSTGRES_DB: restore_check
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deployment/.env}
+    # The drill never mounts the production database volume or exposes a port.
+    tmpfs:
+      - /var/lib/postgresql
+    volumes:
+      - ./backups:/backups:ro
+      - ./scripts:/scripts:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U shiri -d restore_check']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  database:
+  certificates:
+  caddy-config:

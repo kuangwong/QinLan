@@ -1,0 +1,22 @@
+{
+  email {$ACME_EMAIL}
+}
+
+{$SHIRI_DOMAIN} {
+  encode zstd gzip
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+  }
+  @backend path /api/* /health
+  handle @backend {
+    reverse_proxy api:3000
+  }
+  handle {
+    root * /srv/shiri
+    try_files {path} /index.html
+    # Revalidate HTML so a release does not strand users on an old client.
+    header Cache-Control no-cache
+    file_server
+  }
+}

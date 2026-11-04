@@ -10,10 +10,14 @@ export function Avatar({ id, small = false }: { id: string; small?: boolean }) {
   const person = useContext(PeopleContext).find(p => p.id === id);
   return <span className={`avatar ${person?.color || 'sage'} ${small ? 'small' : ''}`} title={person?.name || '未分配'}>{person?.name.slice(-1) || '？'}</span>;
 }
-export function Modal({ title, subtitle, children, onClose, wide = false }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
+export function Modal({ title, subtitle, children, onClose, wide = false, suspended = false }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void; wide?: boolean; suspended?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => { const dialog = ref.current; dialog?.showModal(); return () => dialog?.close(); }, []);
-  return <dialog ref={ref} className={`modal ${wide ? 'wide' : ''}`} onCancel={onClose} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!suspended) dialog?.showModal();
+    return () => dialog?.close();
+  }, [suspended]);
+  return <dialog ref={ref} className={`modal ${wide ? 'wide' : ''}`} onCancel={event => { event.preventDefault(); onClose(); }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
     <header className="modal-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" onClick={onClose} aria-label="关闭弹窗"><X size={20} /></button></header>
     {children}
   </dialog>;

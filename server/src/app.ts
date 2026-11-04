@@ -22,11 +22,12 @@ const pathCode = (request: FastifyRequest) => invitation.parse({ code: (request.
 const passwordOptions = { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
 export const hashPassword = (password: string) => argon2.hash(password, passwordOptions);
 
-interface AppOptions { pool: Pool; logger?: boolean; rateLimit?: boolean; origins?: string[] }
+interface AppOptions { pool: Pool; logger?: boolean; rateLimit?: boolean; origins?: string[]; trustProxy?: number }
 
 export async function buildApp(options: AppOptions) {
   const { pool } = options;
-  const app = Fastify({ logger: options.logger ? { redact: ['req.headers.authorization'] } : false, bodyLimit: 4 * 1024 * 1024 });
+  const app = Fastify({ logger: options.logger ? { redact: ['req.headers.authorization'] } : false,
+    bodyLimit: 4 * 1024 * 1024, trustProxy: options.trustProxy ?? false });
   await app.register(cors, { origin: options.origins || ['http://localhost:5173', 'http://127.0.0.1:5173'] });
   if (options.rateLimit !== false) await app.register(rateLimit, { max: 120, timeWindow: '1 minute' });
   const dummyHash = await hashPassword(randomBytes(32).toString('hex'));

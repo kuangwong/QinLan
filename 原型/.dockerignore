@@ -1,0 +1,9 @@
+node_modules
+dist
+prototype.html
+.env
+.env.*
+!.env.example
+tests
+*.tsbuildinfo
+.git

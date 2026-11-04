@@ -49,10 +49,12 @@ export default function OnlineApp() {
   const completion = useRef<(() => void) | null>(null);
   const uncertain = useRef<(Creation & { done: () => void }) | null>(null);
   const notified = useRef(new Set<string>());
+  const draftConflict = useRef(false);
 
   function failure(reason: unknown) {
     setError(message(reason));
-    setConflict(reason instanceof ApiError && [404, 409].includes(reason.status));
+    if (reason instanceof ApiError && [404, 409].includes(reason.status)) draftConflict.current = true;
+    setConflict(draftConflict.current);
     if (reason instanceof ApiError && reason.status === 401) { setExpired(true); rememberSession(null); }
   }
 
@@ -61,7 +63,9 @@ export default function OnlineApp() {
     gate.current = true; setBusy(true);
     try {
       const latest = await getSnapshot(session);
-      setData(latest); setExpired(false); setError(''); setConflict(false);
+      setData(latest); setExpired(false);
+      setError(draftConflict.current ? '最新数据已刷新，当前输入仍保留。确认后可载入最新内容。' : '');
+      setConflict(draftConflict.current);
       if (completion.current) { const done = completion.current; completion.current = null; done(); }
       if (uncertain.current) {
         const pending = uncertain.current; uncertain.current = null;
@@ -103,7 +107,7 @@ export default function OnlineApp() {
 
   const run: Run = async (method, path, body, done = () => setEditor(null), creation) => {
     if (!session || gate.current || expired || recoveryPending) return false;
-    gate.current = true; setBusy(true); setError(''); setConflict(false);
+    gate.current = true; setBusy(true); setError(''); setConflict(false); draftConflict.current = false;
     let committed = false;
     try {
       const result = await request<MutationResult>(session.baseUrl, session.token, method, path, body); committed = true;
@@ -145,7 +149,7 @@ export default function OnlineApp() {
       rememberSession(null); setSession(null); setData(null); setExpired(false); setEditor(null); setError('');
       setGenerated(null); setSaved(false); setLibraryId(''); setMode('combine'); setManageLibraries(false);
       setTab('tasks'); setScope('mine'); setCalendarScope('mine'); setQuery(''); setAssignee('all'); setStatus('pending');
-      setMonth(new Date()); setSelected(dateKey()); setShowDue(false); setConflict(false); notified.current.clear();
+      setMonth(new Date()); setSelected(dateKey()); setShowDue(false); setConflict(false); draftConflict.current = false; notified.current.clear();
       completion.current = null; uncertain.current = null; setRecoveryPending(false); gate.current = false; setBusy(false);
       setNotice(remoteError ? '本页已退出；服务暂时无法连接，远端会话未能撤销。' : '已退出登录');
     }
@@ -162,13 +166,13 @@ export default function OnlineApp() {
         if (value) setEditor({ ...editor, value } as Editor);
         else { setEditor(null); setNotice('该内容已删除或你已失去访问权限'); }
       }
-      setError(''); setConflict(false);
+      setError(''); setConflict(false); draftConflict.current = false;
     } catch (reason) { failure(reason); }
     finally { gate.current = false; setBusy(false); }
   }
 
   if (demo) return <><div className='demo-exit'><span>本地演示，与联网账号的数据独立</span><button className='button secondary' onClick={() => setDemo(false)}>返回登录</button></div><DemoApp /></>;
-  if (!session || expired) return <AuthForm key={expired ? 'reauth' : 'login'} initialAddress={session?.baseUrl || ''} onSubmit={authenticate}
+  if (!session || (expired && !data)) return <AuthForm key={expired ? 'reauth' : 'login'} initialAddress={session?.baseUrl || ''} onSubmit={authenticate}
     onDemo={!data ? () => setDemo(true) : undefined} onLogout={data ? logout : undefined} notice={expired ? '登录已过期，草稿仍保留。请使用原账号重新登录。' : notice} />;
   if (!data) return <div className='online-loading card'><Leaf size={36} /><h1>正在连接你的小天地</h1>
     {error && <p role='alert'>{error}</p>}<button className='button primary' disabled={busy} onClick={() => void refresh()}>重新连接</button>
@@ -186,7 +190,7 @@ export default function OnlineApp() {
   const library = libraries.find(item => item.id === libraryId) || libraries[0];
   const records = data.records.filter(record => calendarScope === 'mine' ? record.owner === data.user : record.sharedTo.includes(calendarScope));
   const people = data.people.map(person => ({ ...person, color: 'sage' }));
-  const closeEditor = () => { if (!busy && (!recoveryPending || window.confirm('保存结果仍待确认，关闭后请先刷新。确认关闭？'))) { setEditor(null); setError(''); setConflict(false); } };
+  const closeEditor = () => { if (!busy && (!recoveryPending || window.confirm('保存结果仍待确认，关闭后请先刷新。确认关闭？'))) { setEditor(null); setError(''); setConflict(false); draftConflict.current = false; } };
   const createTask = () => setEditor({ kind: 'task', value: { id: newId(), title: '', note: '', listId: selectedList?.id || data.lists[0]?.id || '',
     assignee: data.user, due: '', done: false, version: 0, created: clock } });
   const createLibrary = () => setEditor({ kind: 'library', value: { id: newId(), name: '', mode, slots: mode === 'full' ? [[]] : [[], []], owner: data.user, version: 0 } });
@@ -195,7 +199,10 @@ export default function OnlineApp() {
   };
   const editorKey = editor && 'value' in editor ? `${editor.kind}:${editor.value.id}:${editor.value.version}` : editor?.kind;
 
-  return <PeopleContext.Provider value={people}><div className='online-app'>
+  return <PeopleContext.Provider value={people}>
+    {expired && <AuthForm initialAddress={session.baseUrl} onSubmit={authenticate} onLogout={logout}
+      notice='登录已过期，草稿仍保留。请使用原账号重新登录。' />}
+    <div className='online-app' hidden={expired}>
     <aside className='online-sidebar'>
       <a className='brand' href='#' onClick={event => { event.preventDefault(); setTab('tasks'); setScope('mine'); }}><span className='brand-mark'><Leaf size={25} /></span><strong>拾日<span>SHIRI</span></strong></a>
       <p className='online-caption'>让日常，多一点美好</p>
@@ -238,11 +245,11 @@ export default function OnlineApp() {
         </>}
       </main>
     </div>
-    {showDue && <Modal title='小事提醒' subtitle='页面打开时可查看到期任务。' onClose={() => setShowDue(false)}><p className='info-note'>{notifications}</p><button className='button secondary' onClick={async () => {
+    {showDue && <Modal suspended={expired} title='小事提醒' subtitle='页面打开时可查看到期任务。' onClose={() => setShowDue(false)}><p className='info-note'>{notifications}</p><button className='button secondary' onClick={async () => {
       if (typeof Notification === 'undefined') { setNotifications('当前浏览器不支持系统通知，可使用应用内到期提示'); return; }
       try { const permission = await Notification.requestPermission(); setNotifications(permission === 'granted' ? '页面打开时已启用浏览器提醒' : '提醒未启用，请在浏览器设置中允许通知'); setClock(Date.now()); } catch { setNotifications('提醒未启用，请检查浏览器通知设置'); }
     }}>启用浏览器提醒</button><div className='online-due-list'>{due.map(task => <button key={task.id} onClick={() => { setShowDue(false); setEditor({ kind: 'task', value: task }); }}><strong>{task.title}</strong><span>{localTime(task.due).replace('T', ' ')}</span></button>)}{!due.length && <p>暂时没有到期的待办。</p>}</div></Modal>}
-    {editor && <Modal title={editor.kind === 'task' ? editor.value.version ? '看看这件小事' : '记下一件小事' : editor.kind === 'list' ? '给小事一个新家' : editor.kind === 'library' ? '管理灵感词库' : editor.kind === 'share' ? '把好名字分享给伙伴' : editor.kind === 'members' ? editor.value.name : '和伙伴一起完成小事'} onClose={closeEditor} wide={editor.kind === 'library'}>
+    {editor && <Modal suspended={expired} title={editor.kind === 'task' ? editor.value.version ? '看看这件小事' : '记下一件小事' : editor.kind === 'list' ? '给小事一个新家' : editor.kind === 'library' ? '管理灵感词库' : editor.kind === 'share' ? '把好名字分享给伙伴' : editor.kind === 'members' ? editor.value.name : '和伙伴一起完成小事'} onClose={closeEditor} wide={editor.kind === 'library'}>
       {error && <div className='online-error' role='alert'>{error}<div className='online-error-actions'><button className='button secondary' disabled={busy} onClick={() => void refresh()}>刷新数据</button>{conflict && <button className='button secondary' disabled={busy || recoveryPending} onClick={() => void reloadDraft()}>载入最新内容</button>}</div></div>}
       <fieldset className='online-fieldset' disabled={busy || recoveryPending}>
         {editor.kind === 'task' && <TaskForm key={editorKey} task={editor.value} data={data} run={run} close={closeEditor} />}
@@ -332,11 +339,18 @@ function ShareForm({ record, lists, run, close }: { record: OnlineRecord; lists:
 function Members({ list, data, run, close }: { list: OnlineList; data: Snapshot; run: Run; close: () => void }) {
   const [invite, setInvite] = useState('');
   const [name, setName] = useState(list.name);
+  // Refresh membership separately; only explicit draft reload adopts a newer rename version.
+  const [nameVersion, setNameVersion] = useState(list.version);
   const [error, setError] = useState('');
   const owner = list.owner === data.user;
+  async function copyInvite() {
+    if (!navigator.clipboard?.writeText) { setError('当前连接无法自动复制，请手动复制邀请码'); return; }
+    try { await navigator.clipboard.writeText(invite); setError(''); }
+    catch { setError('复制失败，请手动复制邀请码'); }
+  }
   const confirmed = (prompt: string, method: string, path: string, body: object) => { if (window.confirm(prompt)) void run(method, path, body); };
-  return <div className='form-layout'>{owner && <form className='online-list-name' onSubmit={event => { event.preventDefault(); void run('PATCH', `/lists/${list.id}`, { name: name.trim(), version: list.version }, () => undefined); }}><label>清单名称<input required maxLength={30} value={name} onChange={event => setName(event.target.value)} /></label><button type='submit' className='button secondary'>保存清单名称</button></form>}<div className='members-list'>{list.members.map(id => <div className='member-row' key={id}><Avatar id={id} /><div><strong>{data.people.find(person => person.id === id)?.name}</strong><small>{id === list.owner ? '清单所有者' : '清单成员'}</small></div>{owner && id !== data.user && <><button className='text-button' onClick={() => confirmed('转让后对方将成为清单所有者，确认转让？', 'POST', `/lists/${list.id}/transfer`, { version: list.version, userId: id })}>转让</button><button className='text-button danger-text' aria-label={`移除${data.people.find(person => person.id === id)?.name}`} onClick={() => confirmed('移除成员后，其未完成任务会改为未分配，确认移除？', 'DELETE', `/lists/${list.id}/members/${id}`, versionBody(list))}>移除</button></>}</div>)}</div>
-    {owner && <div className='invite-box'><h3>邀请伙伴</h3><p>邀请码有效期为七天，原码仅在本次生成时显示。</p>{invite && <div className='invite-code'><code>{invite}</code><button type='button' className='button secondary' onClick={() => { void navigator.clipboard.writeText(invite).catch(() => setError('复制失败，请手动复制邀请码')); }}>复制</button></div>}{list.inviteExpires > Date.now() && <p>有效期至 {new Date(list.inviteExpires).toLocaleString('zh-CN')}</p>}<button className='button primary' onClick={() => void run('POST', `/lists/${list.id}/invitation`, versionBody(list), result => setInvite(result.code || ''))}>{list.inviteExpires > Date.now() ? '重新生成邀请码' : '生成邀请码'}</button>
+  return <div className='form-layout'>{owner && <form className='online-list-name' onSubmit={event => { event.preventDefault(); const version = nameVersion; void run('PATCH', `/lists/${list.id}`, { name: name.trim(), version }, () => setNameVersion(version + 1)); }}><label>清单名称<input required maxLength={30} value={name} onChange={event => setName(event.target.value)} /></label><button type='submit' className='button secondary'>保存清单名称</button></form>}<div className='members-list'>{list.members.map(id => <div className='member-row' key={id}><Avatar id={id} /><div><strong>{data.people.find(person => person.id === id)?.name}</strong><small>{id === list.owner ? '清单所有者' : '清单成员'}</small></div>{owner && id !== data.user && <><button className='text-button' onClick={() => confirmed('转让后对方将成为清单所有者，确认转让？', 'POST', `/lists/${list.id}/transfer`, { version: list.version, userId: id })}>转让</button><button className='text-button danger-text' aria-label={`移除${data.people.find(person => person.id === id)?.name}`} onClick={() => confirmed('移除成员后，其未完成任务会改为未分配，确认移除？', 'DELETE', `/lists/${list.id}/members/${id}`, versionBody(list))}>移除</button></>}</div>)}</div>
+    {owner && <div className='invite-box'><h3>邀请伙伴</h3><p>邀请码有效期为七天，原码仅在本次生成时显示。</p>{invite && <div className='invite-code'><code>{invite}</code><button type='button' className='button secondary' onClick={() => void copyInvite()}>复制</button></div>}{list.inviteExpires > Date.now() && <p>有效期至 {new Date(list.inviteExpires).toLocaleString('zh-CN')}</p>}<button className='button primary' onClick={() => void run('POST', `/lists/${list.id}/invitation`, versionBody(list), result => setInvite(result.code || ''))}>{list.inviteExpires > Date.now() ? '重新生成邀请码' : '生成邀请码'}</button>
     {(invite || list.inviteExpires > Date.now()) && <button className='button secondary' onClick={() => void run('DELETE', `/lists/${list.id}/invitation`, versionBody(list), () => setInvite(''))}>撤销邀请</button>}{error && <p role='alert'>{error}</p>}</div>}
     <div className='modal-footer'>{owner ? <button className='button danger-button' onClick={() => confirmed('删除整个清单及其中的任务？个人名字历史会保留。', 'DELETE', `/lists/${list.id}`, versionBody(list))}>删除清单</button> : <button className='button danger-button' onClick={() => confirmed('退出清单后，你未完成的任务会改为未分配。确认退出？', 'DELETE', `/lists/${list.id}/members/${data.user}`, versionBody(list))}>退出清单</button>}<button className='button secondary' onClick={close}>完成</button></div></div>;
 }
