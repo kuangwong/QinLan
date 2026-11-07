@@ -4,7 +4,7 @@
 
 ## 当前结论
 
-原生客户端与协作后端已实现，可进行 API 13 编译和无设备业务验证。**鸿蒙 7 交付仍未完成**：工程当前目标为 HarmonyOS 5.0.1 / API 13；尚缺目标 SDK 编译、开发签名、设备平台测试与两台设备验收。网页目录仍为独立本机原型，未完成方案第一阶段的浏览器联网协作。
+原生客户端与协作后端已实现，可进行 API 13 编译和无设备业务验证。**鸿蒙 7 交付仍未完成**：工程当前目标为 HarmonyOS 5.0.1 / API 13；尚缺目标 SDK 编译、开发签名、设备平台测试与两台设备验收。网页在线端已实现并有 4 项 UI 流程测试，但真实后端联调仍需人工按启动说明验证。
 
 ## 要求与证据
 
@@ -21,7 +21,7 @@
 | 本地系统到期提醒、取消/更新、权限拒绝 | `reminders.test.mjs` 验证最近 30 项、并发更新、退出清理与重试；`SystemReminders.ets` 已编译 | 通知授权、后台/进程终止后的实际触发与取消 |
 | 原生磁盘与安全凭据读写 | 六项 Hypium 平台用例与测试 HAP 已编译，覆盖独立文件、事务失败、中断恢复、损坏保留及 Asset 操作 | 六项均未在设备执行 |
 | 手机布局、键盘、安全区与无障碍 | ArkUI 布局与无障碍属性通过 API 13 编译 | 窄屏、最大字体、横竖屏、软键盘、屏幕朗读及系统安全区 |
-| 数据库迁移、示例账号、本地运行说明 | 后端测试执行实际迁移/初始化命令，验证重跑保留数据；`server/README.md` 与根目录 `compose.yaml` | 当前主机未安装 Docker，Compose 启动未实测 |
+| 数据库迁移、示例账号、本地运行说明 | 后端测试执行实际迁移/初始化命令，验证重跑保留数据；`server/README.md` 与根目录 `compose.yaml` | 本轮未用 Docker 实测 Compose 启动 |
 
 以上 Node 测试不能证明 ArkUI 页面行为；原生编译不能证明任何设备平台调用已成功运行。实际 HTTP 联调使用 Node 网络和内存凭据适配器，不使用设备 NetworkKit 或 Asset Store。
 
@@ -31,18 +31,18 @@
 
 | 目录 | 命令 | 当前结果 |
 | --- | --- | --- |
-| `harmony/` | `pnpm test` | 57 项通过 |
+| `harmony/` | `pnpm test` | 58 项通过 |
 | `harmony/` | `pnpm check:project` | 工程入口与资源引用检查通过 |
-| `harmony/` | `pnpm build:native` | API 13 应用 HAP 编译通过，未签名 |
-| `harmony/` | `pnpm build:device-tests` | API 13 测试 HAP 编译通过，未签名 |
-| `server/` | `pnpm build`、`pnpm test` | 类型检查通过；25 项通过，使用临时真实 PostgreSQL 18 |
-| `原型/` | `CI=true pnpm install --frozen-lockfile`、`pnpm build`、`pnpm test` | 依赖安装与构建通过；5 项单文件交互测试通过 |
+| `harmony/` | `pnpm build:native` | API 13 应用 HAP 编译通过，未签名（历史结果） |
+| `harmony/` | `pnpm build:device-tests` | API 13 测试 HAP 编译通过，未签名（历史结果） |
+| `server/` | `pnpm build`、`pnpm test` | 类型检查通过；26 项通过，使用临时真实 PostgreSQL 18 |
+| `原型/` | `pnpm install --frozen-lockfile`、`pnpm test` | 构建通过；9 项 Happy DOM 测试通过（5 项演示 + 4 项在线 UI） |
 
-复查原型时修正了 `pnpm-workspace.yaml` 中 esbuild 的构建许可占位值，随后按锁文件安装、重新生成 `prototype.html` 并执行上述测试。Happy DOM 结果不代表浏览器视觉或联网协作验收通过。
+复查原型时修正了 `pnpm-workspace.yaml` 中 esbuild 的构建许可占位值，随后按锁文件安装、重新生成 `prototype.html` 并执行上述测试。在线 UI 测试使用确定性假 API 覆盖登录、任务创建、冲突恢复、保存名字、分享和邀请生成；真实服务端契约由 `server/` 的真实 PostgreSQL 测试保证。Happy DOM 结果不代表浏览器视觉或真实设备验收通过。
 
 原生构建使用官方 Command Line Tools 5.0.5.310、SDK 5.0.1.115、Hvigor 5.13.2 和 JDK 17.0.2。两份 HAP 的 ZIP 完整性、非空 Ark 字节码、模块标识与测试代码隔离均已检查。
 
-本次应用包 SHA256：`6543c9a910ed56d9835480cb2dd602accb86e8f729ae5a906f0dac38c854ec43`。测试包 SHA256：`439cb2ff18c47b64aa104ecb65b7eebe13496708412a28f688dcb2d886c1e6f7`。重新构建后应重新核对，不能沿用本次摘要作为新产物证据。
+本次应用包 SHA256：`6543c9a910ed56d9835480cb2dd602accb86e8f729ae5a906f0dac38c854ec43`。测试包 SHA256：`439cb2ff18c47b64aa104ecb65b7eebe13496708412a28f688dcb2d886c1e6f7`。这些摘要对应移除仓库签名配置前的历史构建；重新构建后应重新核对，不能沿用本次摘要作为新产物证据。
 
 ## 下一验收顺序
 
@@ -56,7 +56,7 @@
 
 2026-11-03 再次检查当前主机与官方工具来源：
 
-- 已安装 SDK 的 `sdk/default/sdk-pkg.json` 标识为 HarmonyOS 5.0.1、API 13、5.0.1.115；工程 `build-profile.json5` 的签名配置为空。
+- 已安装 SDK 的 `sdk/default/sdk-pkg.json` 标识为 HarmonyOS 5.0.1、API 13、5.0.1.115；仓库不包含本机 `signingConfigs`（当前为空数组），签名需在 DevEco Studio 本地配置，不能提交证书或口令。
 - `hdc list targets` 仍返回 `[Empty]`。当前主机没有 `/dev/kvm`，CPU 信息未暴露 `vmx` 或 `svm` 标志，不能将 Linux 模拟器视为已具备的验证环境。
 - [华为官方工具仓库](https://repo.huaweicloud.com/harmonyos/ohpm/) 可访问，所列命令行工具目录为 5.0.2、5.0.3、5.0.5、5.1.0。目录名不能证明支持鸿蒙 7；本次未从该目录取得可验证的目标工具包。
 - [DevEco Studio 官方页面](https://developer.huawei.com/consumer/cn/deveco-studio/) 提到 Linux 模拟器；[官方下载中心](https://developer.huawei.com/consumer/cn/download/) 的版本查询接口要求登录会话的 CSRF 信息。本次匿名查询未获得工具版本清单或鸿蒙 7 下载地址，也未使用开发者账号登录。

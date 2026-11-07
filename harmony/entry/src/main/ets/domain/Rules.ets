@@ -40,7 +40,6 @@ export class Rules {
     const list = Rules.member(state, listId);
     requireRule(title.trim().length > 0 && title.trim().length <= 100, '标题需要 1–100 个字符');
     requireRule(note.length <= 2000, '备注最多 2000 个字符');
-    requireRule(assignee === '' || list.members.includes(assignee), '负责人必须是当前清单成员');
     requireRule(validDue(due), '请输入有效的截止时间，例如 2026-11-03 18:30');
     const utcDue = due === '' ? '' : new Date(due).toISOString();
     const existing = state.tasks.find((task: Task) => task.id === id);
@@ -48,12 +47,17 @@ export class Rules {
       Rules.member(state, existing.listId);
       requireRule(existing.listId === listId, '编辑时不能跨清单移动待办');
       requireRule(existing.version === expectedVersion, '待办已发生变化，请重新打开后编辑');
+      // A completed task may keep a departed member as historical context.
+      const historicalAssignee = existing.done && assignee === existing.assignee;
+      requireRule(assignee === '' || list.members.includes(assignee) || historicalAssignee,
+        '负责人必须是当前清单成员');
       existing.title = title.trim();
       existing.note = note.trim();
       existing.assignee = assignee;
       existing.due = utcDue;
       existing.version++;
     } else {
+      requireRule(assignee === '' || list.members.includes(assignee), '负责人必须是当前清单成员');
       requireRule(expectedVersion === 0, '待办已被删除，请刷新');
       state.tasks.push(new Task(id, listId, title.trim(), note.trim(), assignee, utcDue, now));
     }

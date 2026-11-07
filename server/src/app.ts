@@ -18,15 +18,23 @@ declare module 'fastify' {
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const pathId = (request: FastifyRequest) => id.parse((request.params as { id: string }).id);
-const pathCode = (request: FastifyRequest) => invitation.parse({ code: (request.params as { code: string }).code }).code;
 const passwordOptions = { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
 export const hashPassword = (password: string) => argon2.hash(password, passwordOptions);
+
+// Never write query strings or path secrets into access logs. Invite codes now
+// travel in request bodies, but mask the old path shape as well.
+export function serializeRequest(request: { method?: string; url?: string }) {
+  const path = (request.url || '').split('?')[0].replace(/\/invitations\/[^/]+/gi, '/invitations/[redacted]');
+  return { method: request.method || '', url: path };
+}
 
 interface AppOptions { pool: Pool; logger?: boolean; rateLimit?: boolean; origins?: string[] }
 
 export async function buildApp(options: AppOptions) {
   const { pool } = options;
-  const app = Fastify({ logger: options.logger ? { redact: ['req.headers.authorization'] } : false, bodyLimit: 4 * 1024 * 1024 });
+  const app = Fastify({ logger: options.logger
+    ? { redact: ['req.headers.authorization'], serializers: { req: serializeRequest } }
+    : false, bodyLimit: 4 * 1024 * 1024 });
   await app.register(cors, { origin: options.origins || ['http://localhost:5173', 'http://127.0.0.1:5173'] });
   if (options.rateLimit !== false) await app.register(rateLimit, { max: 120, timeWindow: '1 minute' });
   const dummyHash = await hashPassword(randomBytes(32).toString('hex'));
@@ -136,8 +144,8 @@ export async function buildApp(options: AppOptions) {
       return { version: list.version + 1 };
     });
   });
-  app.get('/api/v1/invitations/:code', async request => {
-    const code = pathCode(request);
+  app.post('/api/v1/invitations/lookup', async request => {
+    const { code } = invitation.parse(request.body);
     const [list] = await rows<{ id: string; name: string; member_count: number; already_joined: boolean }>(pool, `
       SELECT l.id,l.name,(SELECT count(*)::int FROM members WHERE list_id=l.id) AS member_count,
       EXISTS(SELECT 1 FROM members WHERE list_id=l.id AND user_id=$2) AS already_joined
@@ -145,8 +153,8 @@ export async function buildApp(options: AppOptions) {
     ensure(list, 404, 'INVITE_INVALID', '邀请码不存在、已撤销或已过期');
     return { id: list.id, name: list.name, memberCount: list.member_count, alreadyJoined: list.already_joined };
   });
-  app.post('/api/v1/invitations/:code/join', async request => {
-    const code = pathCode(request);
+  app.post('/api/v1/invitations/join', async request => {
+    const { code } = invitation.parse(request.body);
     return transaction(pool, async db => {
       const [list] = await rows<ListRow>(db, 'SELECT * FROM lists WHERE invite_hash=$1 FOR UPDATE', [hash(code)]);
       ensure(list && list.invite_expires && list.invite_expires.getTime() > Date.now(), 404, 'INVITE_INVALID', '邀请码不存在、已撤销或已过期');

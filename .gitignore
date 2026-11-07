@@ -12,6 +12,9 @@ local.properties
 *.p7b
 *.cer
 *.csr
+*.jks
+*.keystore
+.ohos/
 *.hap
 .env
 .env.*

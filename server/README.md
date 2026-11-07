@@ -1,6 +1,6 @@
 # 拾日协作服务
 
-Node.js 22.9+、TypeScript、Fastify 和 PostgreSQL 18。鸿蒙端通过 `/api/v1` 使用真实账号、清单和名字记录；网页目录 `原型/` 仍是独立的本机交互原型。
+Node.js 22.9+、TypeScript、Fastify 和 PostgreSQL 18。网页客户端（`原型/`，默认联网，也可切换本地演示）和鸿蒙客户端都通过 `/api/v1` 使用真实账号、清单和名字记录。
 
 ## 本地启动
 
@@ -23,15 +23,15 @@ pnpm dev
 
 生产构建及运行：`pnpm build`，然后 `pnpm start`。迁移需要单独执行，不会在服务启动时修改表结构。数据库文件位于 Compose 的 `shiri-db` 持久卷，`docker compose down` 会保留数据。
 
-升级已有数据库时，停止旧服务，运行 `pnpm migrate` 后再启动新版。`002_combined_name_length.sql` 将名字记录上限从 300 扩展为 900 字符，以容纳三个最长 300 字符的合法词组；保留已有历史。若有遗漏迁移，服务启动会报出迁移文件并退出。
+升级已有数据库时，停止旧服务，运行 `pnpm migrate` 后再启动新版。`002_combined_name_length.sql` 是历史迁移，把名字记录字段上限从 300 扩展为 900，保留旧数据兼容；当前词库每组上限已收紧为 2000 个候选、每个候选 100 字符，新生成的组合名称最多 300 字符。若有遗漏迁移，服务启动会报出迁移文件并退出。
 
 ## 手机与局域网
 
 在 `server/.env` 中设置 `HOST=0.0.0.0`，重启服务；手机和电脑连接同一网络。在鸿蒙应用登录页填写 `http://电脑局域网IP:3000`，例如 `http://192.168.1.10:3000`。手机上的 `127.0.0.1` 指向手机自身。PostgreSQL 仍只绑定电脑回环地址；客户端只连接 HTTP 服务。
 
-本地明文 HTTP 用于开发联调。正式服务应通过 HTTPS 入口访问；服务日志隐藏 Authorization，数据库只保存密码的 Argon2id 哈希、登录令牌及邀请码的 SHA-256 摘要。原始邀请码仅在创建时返回，服务重启后无法重新显示原码，可以撤销或重新生成。
+本地明文 HTTP 用于开发联调。正式服务应通过 HTTPS 入口访问；服务日志隐藏 Authorization，并去掉查询串、掩码邀请码路径，数据库只保存密码的 Argon2id 哈希、登录令牌及邀请码的 SHA-256 摘要。原始邀请码只在创建时返回，通过请求体提交，不进入 URL 和访问日志；服务重启后无法重新显示原码，可以撤销或重新生成。
 
-若要接入浏览器应用，配置 `CORS_ORIGINS` 为实际前端来源，多个地址用逗号分隔；当前网页原型尚未改为联网客户端。
+浏览器的默认开发地址由 Vite 代理到本服务；其他前端来源配置 `CORS_ORIGINS`，多个地址用逗号分隔。网页在线端已连接本服务；直接双击 `prototype.html` 只适合本地演示，联网请使用 `pnpm dev` 或同源反向代理。
 
 ## 验证
 
@@ -40,9 +40,9 @@ pnpm build
 pnpm test
 ```
 
-测试自动启动临时、真实的 PostgreSQL 18，运行迁移、双账号权限和并发场景，最后停止数据库并删除临时目录。无需 Docker，也不读取 `DATABASE_URL`；不能用 root 运行 PostgreSQL 测试。首次安装会下载当前平台的 PostgreSQL 二进制，pnpm 配置仅允许 Argon2、esbuild 和已列出的 PostgreSQL 平台包运行安装脚本。
+测试自动启动临时、真实的 PostgreSQL 18，运行迁移、双账号权限、并发场景和请求日志脱敏，最后停止数据库并删除临时目录。当前 26 项通过。无需 Docker，也不读取 `DATABASE_URL`；不能用 root 运行 PostgreSQL 测试。首次安装会下载当前平台的 PostgreSQL 二进制，pnpm 配置仅允许 Argon2、esbuild 和已列出的 PostgreSQL 平台包运行安装脚本。
 
-还会把**实际鸿蒙业务层源码**中的 `OnlineClient.ets` 转为临时 JavaScript，通过真实 HTTP 完成注册、邀请、共享编辑、词库、名字分享和恢复登录测试。此测试使用 Node 的 HTTP 与内存凭据适配器，不证明鸿蒙 NetworkKit、Asset Store、ArkUI 或真机通知已通过。
+还会把**实际鸿蒙业务层源码**中的 `OnlineClient.ets` 转为临时 JavaScript，通过真实 HTTP 完成注册、邀请、共享编辑、词库、名字分享和恢复登录测试。此测试使用 Node 的 HTTP 与内存凭据适配器，不证明鸿蒙 NetworkKit、Asset Store、ArkUI 或真机通知已通过。网页在线端的 UI 流程由 `原型/tests/online.test.mjs` 使用确定性假 API 覆盖，服务端契约由本目录的真实 PostgreSQL 测试保证。
 
 ## 接口
 
@@ -55,7 +55,7 @@ pnpm test
 | `GET/POST /api/v1/lists` | 查询/新建清单 |
 | `PATCH/DELETE /api/v1/lists/:id` | 所有者重命名/删除清单 |
 | `POST/DELETE /api/v1/lists/:id/invitation` | 所有者生成/撤销七天邀请码 |
-| `GET /api/v1/invitations/:code`、`POST .../:code/join` | 预览并确认加入 |
+| `POST /api/v1/invitations/lookup`、`/invitations/join` | 用请求体中的邀请码预览并确认加入 |
 | `DELETE /api/v1/lists/:id/members/:userId` | 退出或由所有者移除成员 |
 | `POST /api/v1/lists/:id/transfer` | 转让所有权，撤销旧邀请 |
 | `GET /api/v1/tasks`、`POST /api/v1/lists/:id/tasks` | 查询/创建待办 |
@@ -68,12 +68,12 @@ pnpm test
 
 更新/删除需要最新 `version`，过期返回 `409 CONFLICT`；词库更新体为 `{ "version": 1, "data": { "name": "词库", "mode": "full", "slots": [["月亮邮差"]] } }`。任务更新包含 `title`、`note`、`assignee`、`due`、`done`、`version`；未分配或无截止时间传空字符串，截止时间传 ISO 8601 时间戳。
 
-词库每组支持 1–10000 个非空候选，每个候选最多 300 字符；完整名称只有一组，组合模式有两至三组。记录名称最多 900 字符，保证合法三组拼接结果可保存。
+词库每组支持 1–2000 个非空候选，每个候选最多 100 字符；完整名称只有一组，组合模式有两至三组。记录名称字段最多 900 字符，兼容历史数据；当前合法三组拼接结果最多 300 字符。旧数据库中超过新上限的词库仍可读取，但编辑保存前需要先缩减候选。
 
-`GET /tasks` 支持 `listId`、`status=pending|done|all`、`assignee`、`q`；`GET /records` 支持 `scope=mine|清单UUID` 和 `month=YYYY-MM`。保存名字传 `name`、`mode`、`source` 和保存时的本地 `date=YYYY-MM-DD`，服务端保存 UTC 时间。分享只暴露名称和日期，其他成员不会得到来源库名称、候选词或真实生成模式。
+`GET /tasks` 支持 `listId`、`status=pending|done|all`、`assignee`、`q`；`GET /records` 支持 `scope=mine|清单UUID` 和 `month=YYYY-MM`。保存名字传 `name`、`mode`、`source` 和保存时的本地 `date=YYYY-MM-DD`，服务端保存 UTC 时间。分享返回名称、归档日期和保存时间，其他成员不会得到来源库名称、候选词或真实生成模式。
 
 业务错误格式：`{"error":{"code":"CONFLICT","message":"内容已被其他成员修改，请刷新后重新编辑"}}`。客户端应保留表单输入，刷新后由用户确认，不能静默覆盖。
 
 ## 仍待完成
 
-鸿蒙 7 SDK 编译与签名、NetworkKit/Asset Store 设备联调、两台鸿蒙设备的共享同步和后台提醒验证仍需开发环境。当前工作区没有 Docker，Compose 启动命令尚未实际执行；自动化验证使用与其相同主版本的真实 PostgreSQL。云端部署和数据库备份/恢复按根目录 `PLAN.md` 后续推进。
+鸿蒙 7 SDK 编译与签名、NetworkKit/Asset Store 设备联调、两台鸿蒙设备的共享同步和后台提醒验证仍需开发环境。本轮自动化验证未使用 Docker，Compose 启动命令尚未实测；自动化验证使用与其相同主版本的真实 PostgreSQL。云端部署和数据库备份/恢复按根目录 `PLAN.md` 后续推进。

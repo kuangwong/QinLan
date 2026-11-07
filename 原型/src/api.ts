@@ -89,7 +89,7 @@ export function utcTime(local: string): string {
 export function cleanWords(text: string): string[] {
   const words = [...new Set(text.replace(/^\uFEFF/, '').split(/\r?\n/).map(word => word.trim()).filter(Boolean))];
   if (!words.length) throw new Error('每个词组至少需要一个非空候选');
-  if (words.length > 10000 || words.some(word => word.length > 300)) throw new Error('每组最多 10000 个候选，每个候选最多 300 字符');
+  if (words.length > 2000 || words.some(word => word.length > 100)) throw new Error('每组最多 2000 个候选，每个候选最多 100 字符');
   return words;
 }
 

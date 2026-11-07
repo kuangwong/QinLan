@@ -178,8 +178,8 @@ export function librarySlots(mode: NameMode, texts: string[]): string[][] {
   const slots = texts.map((text: string) => cleanWords(text));
   slots.forEach((slot: string[], index: number) => {
     if (slot.length === 0) throw new Error(`词组 ${index + 1} 至少需要一个非空候选词`);
-    if (slot.length > 10000) throw new Error(`词组 ${index + 1} 最多 10000 个候选词`);
-    if (slot.some((word: string) => word.length > 300)) throw new Error(`词组 ${index + 1} 每个候选词最多 300 个字符`);
+    if (slot.length > 2000) throw new Error(`词组 ${index + 1} 最多 2000 个候选词`);
+    if (slot.some((word: string) => word.length > 100)) throw new Error(`词组 ${index + 1} 每个候选词最多 100 个字符`);
   });
   return slots;
 }

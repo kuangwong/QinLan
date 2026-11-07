@@ -103,18 +103,13 @@ test('client rejects mismatched account snapshots and malformed service addresse
 test('invalid word imports fail before sending and retain the existing draft and snapshot', async () => {
   const { client, transport } = await fixture();
   const before = await client.state();
-  const invalid = ['字'.repeat(301), Array.from({ length: 10001 }, (_, index) => `候选${index}`).join('\n')];
+  const invalid = ['字'.repeat(101), Array.from({ length: 2001 }, (_, index) => `候选${index}`).join('\n')];
   const calls = transport.calls.length;
   for (const text of invalid) {
     await assert.rejects(client.saveLibrary(undefined, '灵感', 'full', [text], 0), /词组 1/);
     assert.equal(transport.calls.length, calls);
     assert.equal(JSON.stringify(transport.state), JSON.stringify(before));
   }
-  const largeChinese = Array.from({ length: 1200 }, (_, index) => `${'字'.repeat(296)}${index}`).join('\n');
-  assert.ok(largeChinese.length < 1024 * 1024);
-  assert.ok(new TextEncoder().encode(largeChinese).byteLength > 1024 * 1024);
-  await assert.rejects(client.saveLibrary(undefined, '超大中文导入', 'full', [largeChinese], 0), /1 MB UTF-8/);
-  assert.equal(transport.calls.length, calls);
   await client.saveLibrary(undefined, '有效导入', 'full', ['\uFEFF月亮\r\n\r\n月亮\n海风'], 0);
   assert.deepEqual(JSON.parse(transport.calls.at(-1).body).slots, [['月亮', '海风']]);
 });

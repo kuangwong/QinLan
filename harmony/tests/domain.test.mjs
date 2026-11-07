@@ -115,6 +115,19 @@ test('member removal unassigns only open tasks and preserves completed history',
   assert.doesNotThrow(() => copy(state));
 });
 
+test('completed tasks keep a departed assignee and remain editable', () => {
+  const state = fresh();
+  Rules.saveTask(state, 'completed', 'weekend', '已完成', '', 'chen', '', now.getTime(), 0);
+  Rules.toggleTask(state, 'completed', 1);
+  Rules.removeMember(state, 'weekend', 'chen');
+  assert.equal(state.tasks.find(task => task.id === 'completed').assignee, 'chen');
+  assert.equal(state.tasks.find(task => task.id === 'completed').version, 2);
+  assert.doesNotThrow(() => copy(state));
+  assert.doesNotThrow(() => Rules.saveTask(state, 'completed', 'weekend', '已完成（改名）', '', 'chen', '', now.getTime(), 2));
+  assert.equal(state.tasks.find(task => task.id === 'completed').title, '已完成（改名）');
+  assert.equal(state.tasks.find(task => task.id === 'completed').assignee, 'chen');
+});
+
 test('owner cannot leave; transfer revokes invites then former owner can exit', () => {
   const state = fresh();
   assert.throws(() => Rules.removeMember(state, 'weekend', 'lin'), /转让/);
@@ -154,18 +167,20 @@ test('complete-name generation draws a full entry', () => {
 
 test('three valid maximum-length slot entries generate a name that can be saved', () => {
   const state = fresh();
-  const words = ['甲'.repeat(300), '乙'.repeat(300), '丙'.repeat(300)];
+  const words = ['甲'.repeat(100), '乙'.repeat(100), '丙'.repeat(100)];
   Rules.saveLibrary(state, 'long', '长名称组合', 'combine', words);
   const generated = Rules.generate(state, 'long', () => 0);
   assert.equal(generated.name, words.join(''));
   Rules.saveName(state, 'long-record', generated, now);
-  assert.equal(state.records[0].name.length, 900);
+  assert.equal(state.records[0].name.length, 300);
 });
 
-test('reject empty libraries, wrong slot counts and other users libraries', () => {
+test('reject empty libraries, wrong slot counts, over-limit candidates and other users libraries', () => {
   const state = fresh();
   assert.throws(() => Rules.saveLibrary(state, 'bad', '空库', 'full', [' \n ']), /非空/);
   assert.throws(() => Rules.saveLibrary(state, 'bad', '组合', 'combine', ['单组']), /2–3/);
+  assert.throws(() => Rules.saveLibrary(state, 'bad', '超长', 'full', ['甲'.repeat(101)]), /100/);
+  assert.throws(() => Rules.saveLibrary(state, 'bad', '超量', 'full', [Array.from({ length: 2001 }, (_, index) => `候选${index}`).join('\n')]), /2000/);
   assert.throws(() => Rules.saveLibrary(state, 'sea', '越权', 'full', ['词']), /自己/);
   assert.throws(() => Rules.deleteLibrary(state, 'sea'), /自己/);
   assert.throws(() => Rules.generate(state, 'sea'), /自己/);

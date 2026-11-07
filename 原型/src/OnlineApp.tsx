@@ -49,11 +49,25 @@ export default function OnlineApp() {
   const completion = useRef<(() => void) | null>(null);
   const uncertain = useRef<(Creation & { done: () => void }) | null>(null);
   const notified = useRef(new Set<string>());
+  const editorRef = useRef<Editor | null>(null);
+  const editorConflict = useRef(false);
+
+  useEffect(() => {
+    editorRef.current = editor;
+    editorConflict.current = false;
+    setConflict(false);
+    setError('');
+  }, [editor]);
 
   function failure(reason: unknown) {
+    const status = reason instanceof ApiError ? reason.status : 0;
+    if (reason instanceof ApiError && status === 401) {
+      setExpired(true); rememberSession(null); editorConflict.current = false;
+    } else if ((status === 404 || status === 409) && editorRef.current) {
+      editorConflict.current = true;
+    }
     setError(message(reason));
-    setConflict(reason instanceof ApiError && [404, 409].includes(reason.status));
-    if (reason instanceof ApiError && reason.status === 401) { setExpired(true); rememberSession(null); }
+    setConflict(status === 404 || status === 409 || editorConflict.current);
   }
 
   const refresh = useCallback(async () => {
@@ -61,7 +75,21 @@ export default function OnlineApp() {
     gate.current = true; setBusy(true);
     try {
       const latest = await getSnapshot(session);
-      setData(latest); setExpired(false); setError(''); setConflict(false);
+      setData(latest); setExpired(false);
+      const current = editorRef.current;
+      let draftConflict = editorConflict.current;
+      if (current && 'value' in current && current.kind !== 'members' && current.value.version > 0) {
+        const latestVersion = draftVersion(latest, current);
+        if (latestVersion !== current.value.version) draftConflict = true;
+      }
+      if (draftConflict) {
+        editorConflict.current = true;
+        setConflict(true);
+        setError('内容已被其他成员修改。当前输入已保留，请载入最新内容后再保存。');
+      } else {
+        editorConflict.current = false;
+        setError(''); setConflict(false);
+      }
       if (completion.current) { const done = completion.current; completion.current = null; done(); }
       if (uncertain.current) {
         const pending = uncertain.current; uncertain.current = null;
@@ -107,6 +135,7 @@ export default function OnlineApp() {
     let committed = false;
     try {
       const result = await request<MutationResult>(session.baseUrl, session.token, method, path, body); committed = true;
+      editorConflict.current = false;
       completion.current = () => done(result);
       const latest = await getSnapshot(session); setData(latest); completion.current = null; done(result); setNotice('已保存');
       return true;
@@ -143,6 +172,7 @@ export default function OnlineApp() {
     catch { remoteError = true; }
     finally {
       rememberSession(null); setSession(null); setData(null); setExpired(false); setEditor(null); setError('');
+      editorConflict.current = false;
       setGenerated(null); setSaved(false); setLibraryId(''); setMode('combine'); setManageLibraries(false);
       setTab('tasks'); setScope('mine'); setCalendarScope('mine'); setQuery(''); setAssignee('all'); setStatus('pending');
       setMonth(new Date()); setSelected(dateKey()); setShowDue(false); setConflict(false); notified.current.clear();
@@ -162,7 +192,7 @@ export default function OnlineApp() {
         if (value) setEditor({ ...editor, value } as Editor);
         else { setEditor(null); setNotice('该内容已删除或你已失去访问权限'); }
       }
-      setError(''); setConflict(false);
+      setError(''); setConflict(false); editorConflict.current = false;
     } catch (reason) { failure(reason); }
     finally { gate.current = false; setBusy(false); }
   }
@@ -186,7 +216,7 @@ export default function OnlineApp() {
   const library = libraries.find(item => item.id === libraryId) || libraries[0];
   const records = data.records.filter(record => calendarScope === 'mine' ? record.owner === data.user : record.sharedTo.includes(calendarScope));
   const people = data.people.map(person => ({ ...person, color: 'sage' }));
-  const closeEditor = () => { if (!busy && (!recoveryPending || window.confirm('保存结果仍待确认，关闭后请先刷新。确认关闭？'))) { setEditor(null); setError(''); setConflict(false); } };
+  const closeEditor = () => { if (!busy && (!recoveryPending || window.confirm('保存结果仍待确认，关闭后请先刷新。确认关闭？'))) { editorConflict.current = false; setEditor(null); setError(''); setConflict(false); } };
   const createTask = () => setEditor({ kind: 'task', value: { id: newId(), title: '', note: '', listId: selectedList?.id || data.lists[0]?.id || '',
     assignee: data.user, due: '', done: false, version: 0, created: clock } });
   const createLibrary = () => setEditor({ kind: 'library', value: { id: newId(), name: '', mode, slots: mode === 'full' ? [[]] : [[], []], owner: data.user, version: 0 } });
@@ -262,6 +292,16 @@ function relevant(task: OnlineTask, data: Snapshot) {
 function taskBody(task: OnlineTask) {
   return { title: task.title.trim(), note: task.note.trim(), assignee: task.assignee, due: task.due, done: task.done, version: task.version };
 }
+function draftVersion(snapshot: Snapshot, editor: Editor): number | undefined {
+  if (!('value' in editor)) return undefined;
+  switch (editor.kind) {
+    case 'task': return snapshot.tasks.find(item => item.id === editor.value.id)?.version;
+    case 'library': return snapshot.libraries.find(item => item.id === editor.value.id)?.version;
+    case 'share': return snapshot.records.find(item => item.id === editor.value.id)?.version;
+    case 'list': return snapshot.lists.find(item => item.id === editor.value.id)?.version;
+    default: return undefined;
+  }
+}
 
 function AuthForm({ initialAddress, onSubmit, onDemo, onLogout, notice }: { initialAddress: string; onSubmit: (address: string, username: string, password: string, name?: string) => Promise<void>; onDemo?: () => void; onLogout?: () => Promise<void>; notice: string }) {
   const [register, setRegister] = useState(false);
@@ -323,7 +363,7 @@ function LibraryForm({ library, run, close, onSaved }: { library: OnlineLibrary;
       const done = () => { onSaved(mode); close(); };
       void run(library.version ? 'PUT' : 'POST', library.version ? `/libraries/${library.id}` : '/libraries', library.version ? { version: library.version, data } : { ...data, id: library.id }, done, library.version ? undefined : { kind: 'libraries', id: library.id });
     } catch (reason) { setError(message(reason)); }
-  }}><fieldset disabled={reading} className='online-fieldset'><div className='form-two-columns'><label>词库名称<input autoFocus name='name' required maxLength={30} defaultValue={library.name} /></label><label>生成方式<select aria-label='生成方式' value={mode} onChange={event => { const next = event.target.value as typeof mode; setMode(next); if (next === 'combine' && slots.length < 2) setSlots([...slots, '']); }}><option value='full'>完整名称抽取</option><option value='combine'>有序词组组合</option></select></label></div><p className='info-note'>每行一个候选，自动去除空行与重复项。每组最多 10000 项，每项最多 300 字符。</p><div className={`slot-editors ${mode === 'full' ? 'single' : ''}`}>{(mode === 'full' ? slots.slice(0, 1) : slots).map((text, index) => <label key={index}>词组 {index + 1}<textarea required rows={7} value={text} aria-label={`词组 ${index + 1}`} onChange={event => setSlots(current => current.map((value, i) => i === index ? event.target.value : value))} /><span className='import-file'>导入 UTF-8 TXT<input type='file' accept='.txt,text/plain' aria-label={`导入词组${index + 1}`} onChange={event => { void importText(event.target.files?.[0], index); event.target.value = ''; }} /></span></label>)}</div>{mode === 'combine' && <button type='button' className='text-button' onClick={() => setSlots(slots.length === 3 ? slots.slice(0, 2) : [...slots, ''])}>{slots.length === 3 ? '移除第三个词组' : '添加第三个词组'}</button>}{error && <p className='form-error' role='alert'>{error}</p>}<FormFooter close={close} label={reading ? '读取中…' : '保存词库'} /></fieldset></form>;
+  }}><fieldset disabled={reading} className='online-fieldset'><div className='form-two-columns'><label>词库名称<input autoFocus name='name' required maxLength={30} defaultValue={library.name} /></label><label>生成方式<select aria-label='生成方式' value={mode} onChange={event => { const next = event.target.value as typeof mode; setMode(next); if (next === 'combine' && slots.length < 2) setSlots([...slots, '']); }}><option value='full'>完整名称抽取</option><option value='combine'>有序词组组合</option></select></label></div><p className='info-note'>每行一个候选，自动去除空行与重复项。每组最多 2000 项，每项最多 100 字符。</p><div className={`slot-editors ${mode === 'full' ? 'single' : ''}`}>{(mode === 'full' ? slots.slice(0, 1) : slots).map((text, index) => <label key={index}>词组 {index + 1}<textarea required rows={7} value={text} aria-label={`词组 ${index + 1}`} onChange={event => setSlots(current => current.map((value, i) => i === index ? event.target.value : value))} /><span className='import-file'>导入 UTF-8 TXT<input type='file' accept='.txt,text/plain' aria-label={`导入词组${index + 1}`} onChange={event => { void importText(event.target.files?.[0], index); event.target.value = ''; }} /></span></label>)}</div>{mode === 'combine' && <button type='button' className='text-button' onClick={() => setSlots(slots.length === 3 ? slots.slice(0, 2) : [...slots, ''])}>{slots.length === 3 ? '移除第三个词组' : '添加第三个词组'}</button>}{error && <p className='form-error' role='alert'>{error}</p>}<FormFooter close={close} label={reading ? '读取中…' : '保存词库'} /></fieldset></form>;
 }
 function ShareForm({ record, lists, run, close }: { record: OnlineRecord; lists: OnlineList[]; run: Run; close: () => void }) {
   const [selected, setSelected] = useState(record.sharedTo.filter(id => lists.some(list => list.id === id)));
@@ -345,5 +385,5 @@ function JoinForm({ session, run, close }: { session: Session; run: Run; close: 
   const [preview, setPreview] = useState<{ id: string; name: string; memberCount: number; alreadyJoined: boolean } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  return <form className='form-layout' onSubmit={async event => { event.preventDefault(); setError(''); setBusy(true); try { const result = await request<NonNullable<typeof preview>>(session.baseUrl, session.token, 'GET', `/invitations/${encodeURIComponent(code.trim().toUpperCase())}`); setPreview(result); } catch (reason) { setError(message(reason)); } finally { setBusy(false); } }}><fieldset disabled={busy} className='online-fieldset'><label>邀请码<input autoFocus required value={code} onChange={event => { setCode(event.target.value); setPreview(null); setError(''); }} /></label>{preview && <div className='join-preview'><div><h3>{preview.name}</h3><p>{preview.memberCount} 位成员{preview.alreadyJoined && ' · 你已加入'}</p></div></div>}{error && <p className='form-error' role='alert'>{error}</p>}<div className='modal-footer'><button type='button' className='button secondary' onClick={close}>取消</button>{preview && !preview.alreadyJoined ? <button type='button' className='button primary' onClick={() => void run('POST', `/invitations/${encodeURIComponent(code.trim().toUpperCase())}/join`, undefined)}>确认加入</button> : <button type='submit' className='button primary'>查找邀请</button>}</div></fieldset></form>;
+  return <form className='form-layout' onSubmit={async event => { event.preventDefault(); setError(''); setBusy(true); try { const result = await request<NonNullable<typeof preview>>(session.baseUrl, session.token, 'POST', '/invitations/lookup', { code: code.trim().toUpperCase() }); setPreview(result); } catch (reason) { setError(message(reason)); } finally { setBusy(false); } }}><fieldset disabled={busy} className='online-fieldset'><label>邀请码<input autoFocus required value={code} onChange={event => { setCode(event.target.value); setPreview(null); setError(''); }} /></label>{preview && <div className='join-preview'><div><h3>{preview.name}</h3><p>{preview.memberCount} 位成员{preview.alreadyJoined && ' · 你已加入'}</p></div></div>}{error && <p className='form-error' role='alert'>{error}</p>}<div className='modal-footer'><button type='button' className='button secondary' onClick={close}>取消</button>{preview && !preview.alreadyJoined ? <button type='button' className='button primary' onClick={() => void run('POST', '/invitations/join', { code: code.trim().toUpperCase() })}>确认加入</button> : <button type='submit' className='button primary'>查找邀请</button>}</div></fieldset></form>;
 }

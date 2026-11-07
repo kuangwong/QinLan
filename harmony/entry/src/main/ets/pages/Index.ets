@@ -648,7 +648,7 @@ struct Index {
   @Builder
   private libraryForm() {
     this.heading('收藏自己的灵感', '每行一个候选；保存时自动去除空行与重复项。')
-    Text('每组最多 10000 个候选，每个候选最多 300 个字符；支持小于 1 MB 的 UTF-8 TXT。').fontSize(12).fontColor('#7A857A').lineHeight(22)
+    Text('每组最多 2000 个候选，每个候选最多 100 个字符；支持小于 1 MB 的 UTF-8 TXT。').fontSize(12).fontColor('#7A857A').lineHeight(22)
     Text('词库名称').fontSize(13).width('100%')
     TextInput({ text: this.title, placeholder: '最多 30 字' }).maxLength(30).onChange((value: string) => this.title = value).accessibilityText('词库名称，必填')
     Text('生成模式').fontSize(13).width('100%')

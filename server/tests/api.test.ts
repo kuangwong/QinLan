@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Pool } from 'pg';
 import type { FastifyInstance, HTTPMethods } from 'fastify';
-import { buildApp } from '../src/app.js';
+import { buildApp, serializeRequest } from '../src/app.js';
 import { assertMigrated, migrate } from '../src/db.js';
 import type { Snapshot } from '../src/state.js';
 import { nativeClient } from './native-client.js';
@@ -38,7 +38,7 @@ test('Fastify API with an isolated real PostgreSQL cluster', { timeout: 120000 }
   async function shared(a: { token: string }, b: { token: string }) {
     const list = await request('POST', '/api/v1/lists', a.token, { name: '一起散步' }, 201);
     const invitation = await request('POST', `/api/v1/lists/${list.id}/invitation`, a.token, { version: 1 });
-    await request('POST', `/api/v1/invitations/${invitation.code}/join`, b.token);
+    await request('POST', '/api/v1/invitations/join', b.token, { code: invitation.code });
     return { id: list.id as string, code: invitation.code as string, version: 3 };
   }
 
@@ -46,6 +46,13 @@ test('Fastify API with an isolated real PostgreSQL cluster', { timeout: 120000 }
     const result = await pool!.query('SELECT version()');
     assert.match(result.rows[0].version, /^PostgreSQL 18/);
     assert.equal((await pool!.query('SELECT count(*)::int AS count FROM schema_migrations')).rows[0].count, 2);
+  });
+  await t.test('request logs strip query strings and invitation path secrets', () => {
+    assert.deepEqual(serializeRequest({ method: 'GET', url: '/api/v1/tasks?q=私人搜索&month=2026-11' }),
+      { method: 'GET', url: '/api/v1/tasks' });
+    const invite = serializeRequest({ method: 'GET', url: '/api/v1/invitations/SHIRI-0123456789ABCDEF01234567' });
+    assert.equal(invite.url, '/api/v1/invitations/[redacted]');
+    assert.ok(!JSON.stringify(invite).includes('SHIRI'));
   });
   await t.test('documented migration and seed commands create two accounts and preserve existing data on rerun', async () => {
     const run = promisify(execFile);
@@ -94,25 +101,25 @@ test('Fastify API with an isolated real PostgreSQL cluster', { timeout: 120000 }
     const list = await request('POST', '/api/v1/lists', a.token, { name: '邀请流程' }, 201);
     const invite = await request('POST', `/api/v1/lists/${list.id}/invitation`, a.token, { version: 1 });
     const before = await state(b.token);
-    const preview = await request('GET', `/api/v1/invitations/${invite.code.toLowerCase()}`, b.token);
+    const preview = await request('POST', '/api/v1/invitations/lookup', b.token, { code: invite.code.toLowerCase() });
     assert.equal(preview.name, '邀请流程'); assert.equal(preview.alreadyJoined, false);
     assert.equal((await state(b.token)).lists.length, before.lists.length);
     const [{ invite_hash: stored }] = (await pool!.query('SELECT invite_hash FROM lists WHERE id=$1', [list.id])).rows;
     assert.notEqual(stored, invite.code);
-    await request('POST', `/api/v1/invitations/${invite.code}/join`, b.token);
+    await request('POST', '/api/v1/invitations/join', b.token, { code: invite.code });
     assert.ok((await state(b.token)).lists.some(item => item.id === list.id));
-    await request('POST', `/api/v1/invitations/${invite.code}/join`, b.token, undefined, 409);
+    await request('POST', '/api/v1/invitations/join', b.token, { code: invite.code }, 409);
   });
   await t.test('revoked, rotated and expired invitations cannot be used', async () => {
     const { a, b } = await fixture(); const list = (await state(a.token)).lists[0];
     const first = await request('POST', `/api/v1/lists/${list.id}/invitation`, a.token, { version: 1 });
     const second = await request('POST', `/api/v1/lists/${list.id}/invitation`, a.token, { version: 2 });
-    await request('POST', `/api/v1/invitations/${first.code}/join`, b.token, undefined, 404);
+    await request('POST', '/api/v1/invitations/join', b.token, { code: first.code }, 404);
     await request('DELETE', `/api/v1/lists/${list.id}/invitation`, a.token, { version: 3 });
-    await request('GET', `/api/v1/invitations/${second.code}`, b.token, undefined, 404);
+    await request('POST', '/api/v1/invitations/lookup', b.token, { code: second.code }, 404);
     const third = await request('POST', `/api/v1/lists/${list.id}/invitation`, a.token, { version: 4 });
     await pool!.query('UPDATE lists SET invite_expires=now()-interval \'1 second\' WHERE id=$1', [list.id]);
-    await request('POST', `/api/v1/invitations/${third.code}/join`, b.token, undefined, 404);
+    await request('POST', '/api/v1/invitations/join', b.token, { code: third.code }, 404);
   });
   await t.test('members cannot manage lists and outsiders cannot see shared data', async () => {
     const { a, b, outsider } = await fixture(); const list = await shared(a, b);
@@ -183,7 +190,7 @@ test('Fastify API with an isolated real PostgreSQL cluster', { timeout: 120000 }
     const { a, b, outsider } = await fixture(); const list = await shared(a, b);
     await request('DELETE', `/api/v1/lists/${list.id}/members/${a.id}`, a.token, { version: 3 }, 422);
     await request('POST', `/api/v1/lists/${list.id}/transfer`, a.token, { version: 3, userId: b.id });
-    await request('POST', `/api/v1/invitations/${list.code}/join`, outsider.token, undefined, 404);
+    await request('POST', '/api/v1/invitations/join', outsider.token, { code: list.code }, 404);
     await request('DELETE', `/api/v1/lists/${list.id}/members/${a.id}`, a.token, { version: 4 });
     assert.equal((await state(b.token)).lists.find(item => item.id === list.id)?.owner, b.id);
   });
@@ -192,6 +199,12 @@ test('Fastify API with an isolated real PostgreSQL cluster', { timeout: 120000 }
     const library = await request('POST', '/api/v1/libraries', a.token, { name: '三组', mode: 'combine', slots: [[' 温柔的 ', '温柔的'], ['森林'], ['旅人']] }, 201);
     assert.deepEqual((await state(a.token)).libraries.find(item => item.id === library.id)?.slots, [['温柔的'], ['森林'], ['旅人']]);
     await request('POST', '/api/v1/libraries', a.token, { name: '错误', mode: 'combine', slots: [['单组']] }, 400);
+    await request('POST', '/api/v1/libraries', a.token,
+      { name: '超量', mode: 'full', slots: [Array.from({ length: 2001 }, (_, index) => `候选${index}`)] }, 400);
+    await request('POST', '/api/v1/libraries', a.token,
+      { name: '超长', mode: 'full', slots: [['甲'.repeat(101)]] }, 400);
+    await request('POST', '/api/v1/libraries', a.token,
+      { name: '上限', mode: 'full', slots: [Array.from({ length: 2000 }, (_, index) => `${'甲'.repeat(96)}${index}`)] }, 201);
     await request('DELETE', `/api/v1/libraries/${library.id}`, b.token, { version: 1 }, 404);
     await request('PUT', `/api/v1/libraries/${library.id}`, a.token, { version: 1, data: { name: '重命名', mode: 'full', slots: [['名称']] } });
     await request('DELETE', `/api/v1/libraries/${library.id}`, a.token, { version: 1 }, 409);
@@ -209,7 +222,7 @@ test('Fastify API with an isolated real PostgreSQL cluster', { timeout: 120000 }
     assert.ok(saved.records.every(item => item.savedAt.endsWith('Z')));
     assert.equal((await request('GET', '/api/v1/records?month=2026-10', a.token)).length, 0);
   });
-  await t.test('upgrading an existing database preserves history and permits three maximum-length slots', async () => {
+  await t.test('upgrading an existing database preserves history, permits maximum slots and retains the 900-character legacy cap', async () => {
     const { a } = await fixture();
     const old = await request('POST', '/api/v1/records', a.token,
       { name: '已有历史', mode: 'full', source: '旧词库', date: '2026-11-03' }, 201);
@@ -228,16 +241,20 @@ test('Fastify API with an isolated real PostgreSQL cluster', { timeout: 120000 }
     await migrate(pool!);
     await migrate(pool!);
     await assertMigrated(pool!);
-    const slots = [['甲'.repeat(300)], ['乙'.repeat(300)], ['丙'.repeat(300)]];
+    const slots = [['甲'.repeat(100)], ['乙'.repeat(100)], ['丙'.repeat(100)]];
     await request('POST', '/api/v1/libraries', a.token, { name: '长名称组合', mode: 'combine', slots }, 201);
     const name = slots.map(slot => slot[0]).join('');
     const record = await request('POST', '/api/v1/records', a.token,
       { name, mode: 'combine', source: '长名称组合', date: '2026-11-03' }, 201);
+    const legacy = '丁'.repeat(900);
+    const legacyRecord = await request('POST', '/api/v1/records', a.token,
+      { name: legacy, mode: 'full', source: '旧版历史', date: '2026-11-03' }, 201);
     const saved = await state(a.token);
     assert.equal(saved.records.find(item => item.id === old.id)?.name, '已有历史');
     assert.equal(saved.records.find(item => item.id === record.id)?.name, name);
+    assert.equal(saved.records.find(item => item.id === legacyRecord.id)?.name, legacy);
     await request('POST', '/api/v1/records', a.token,
-      { name: `${name}超`, mode: 'combine', source: '长名称组合', date: '2026-11-03' }, 400);
+      { name: `${legacy}超`, mode: 'full', source: '旧版历史', date: '2026-11-03' }, 400);
   });
   await t.test('sharing exposes only name/date, can be revoked and never grants edit permission', async () => {
     const { a, b, outsider } = await fixture(); const list = await shared(a, b);

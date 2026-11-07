@@ -25,7 +25,7 @@ export const taskInput = z.object({
 export const taskUpdate = taskInput.extend({ done: z.boolean(), version });
 export const libraryInput = z.object({
   name: z.string().trim().min(1).max(30), mode: z.enum(['full', 'combine']),
-  slots: z.array(z.array(z.string().trim().min(1).max(300)).min(1).max(10000)).min(1).max(3)
+  slots: z.array(z.array(z.string().trim().min(1).max(100)).min(1).max(2000)).min(1).max(3)
 }).strict().refine(value => value.mode === 'full' ? value.slots.length === 1 : value.slots.length >= 2,
   { message: '完整名称需要一个候选组，组合模式需要 2–3 个词组' });
 export const libraryUpdate = z.object({ data: libraryInput, version }).strict();

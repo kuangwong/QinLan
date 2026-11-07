@@ -30,6 +30,7 @@ interface LibraryUpdate { data: LibraryInput; version: number }
 interface RecordInput { name: string; mode: NameMode; source: string; date: string; id?: string }
 interface ShareInput { listIds: string[]; version: number }
 interface TransferInput { userId: string; version: number }
+interface InvitationCode { code: string }
 export interface Invitation { code: string; expiresAt: string; version: number }
 export interface InvitationPreview { id: string; name: string; memberCount: number; alreadyJoined: boolean }
 
@@ -142,9 +143,13 @@ export class OnlineClient {
   }
 
   async findInvitation(code: string): Promise<InvitationPreview> {
-    return JSON.parse(await this.call('GET', `/api/v1/invitations/${encodeURIComponent(code.trim().toUpperCase())}`)) as InvitationPreview;
+    const input: InvitationCode = { code: code.trim().toUpperCase() };
+    return JSON.parse(await this.call('POST', '/api/v1/invitations/lookup', JSON.stringify(input))) as InvitationPreview;
   }
-  async join(code: string): Promise<void> { await this.call('POST', `/api/v1/invitations/${encodeURIComponent(code.trim().toUpperCase())}/join`); }
+  async join(code: string): Promise<void> {
+    const input: InvitationCode = { code: code.trim().toUpperCase() };
+    await this.call('POST', '/api/v1/invitations/join', JSON.stringify(input));
+  }
 
   async saveLibrary(existing: Library | undefined, name: string, mode: NameMode, texts: string[], expectedVersion: number, creationId: string = ''): Promise<void> {
     if (!existing && expectedVersion !== 0) throw new ApiFailure(404, 'NOT_FOUND', '词库已被删除，请刷新后重新确认');
