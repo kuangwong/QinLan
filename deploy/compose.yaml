@@ -1,0 +1,73 @@
+name: shiri
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: shiri
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: shiri
+    volumes:
+      - shiri-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shiri -d shiri"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [shiri]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/api.Dockerfile
+    environment:
+      DATABASE_URL: postgres://shiri:${POSTGRES_PASSWORD}@db:5432/shiri
+      HOST: 0.0.0.0
+      PORT: "3000"
+      CORS_ORIGINS: "${PUBLIC_ORIGIN:-http://82.157.149.117:8080}"
+      TRUST_PROXY: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+    expose: ["3000"]
+    init: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks: [shiri]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks: [shiri]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  shiri-db:
+
+networks:
+  shiri:

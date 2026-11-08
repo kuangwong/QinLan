@@ -6,6 +6,9 @@ export interface ApiTransport {
   request(baseUrl: string, method: string, path: string, token: string, body: string): Promise<string>;
 }
 
+/** 拾日云端服务固定地址；APP 不向用户索取服务地址。 */
+export const DEFAULT_SERVER: string = 'http://82.157.149.117:8080';
+
 export class RemoteSession {
   baseUrl: string = '';
   token: string = '';
@@ -37,7 +40,7 @@ export interface InvitationPreview { id: string; name: string; memberCount: numb
 export function serverAddress(value: string): string {
   const address = value.trim().replace(/\/$/, '');
   if (!/^https?:\/\/[a-zA-Z0-9.-]+(?::[0-9]{1,5})?$/.test(address)) {
-    throw new Error('请输入服务地址，例如 https://shiri.example.com 或 http://192.168.1.10:3000');
+    throw new Error('服务地址无效，请清除本机登录信息后重试');
   }
   return address;
 }
@@ -57,11 +60,11 @@ export class OnlineClient {
     this.transport = transport; this.vault = vault; this.session = session;
   }
 
-  static async resume(transport: ApiTransport, vault: SessionVault): Promise<OnlineClient | undefined> {
+  static async resume(transport: ApiTransport, vault: SessionVault, address: string = ''): Promise<OnlineClient | undefined> {
     const session = await vault.read();
     if (session === undefined) return undefined;
     if (!validSession(session)) throw new Error('安全存储中的登录信息无法读取，请重新登录');
-    serverAddress(session.baseUrl);
+    session.baseUrl = serverAddress(address || session.baseUrl);
     if (new Date(session.expiresAt).getTime() <= Date.now()) { await vault.clear(); return undefined; }
     return new OnlineClient(transport, vault, session);
   }
@@ -74,7 +77,7 @@ export class OnlineClient {
     const raw = await transport.request(baseUrl, 'POST', name ? '/api/v1/auth/register' : '/api/v1/auth/login', '',
       JSON.stringify(name ? registration : credentials));
     const session = JSON.parse(raw) as RemoteSession;
-    if (!validSession(session)) throw new Error('服务返回的登录信息无效，请检查服务地址');
+    if (!validSession(session)) throw new Error('服务返回的登录信息无效，请稍后重试');
     session.baseUrl = baseUrl;
     const client = new OnlineClient(transport, vault, session);
     try { await vault.write(session); }

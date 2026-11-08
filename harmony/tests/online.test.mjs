@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 
 const load = name => import(pathToFileURL(join(process.env.SHIRI_DOMAIN_DIR, `${name}.js`)).href);
-const { OnlineClient, serverAddress } = await load('OnlineClient');
+const { DEFAULT_SERVER, OnlineClient, serverAddress } = await load('OnlineClient');
 const { seed } = await load('Seed');
 const token = 'a'.repeat(64);
 const session = () => ({ token, userId: 'lin', expiresAt: new Date(Date.now() + 86400000).toISOString() });
@@ -32,6 +32,14 @@ async function fixture() {
   return { vault, transport, client };
 }
 
+test('authentication targets the built-in Tencent Cloud service without asking for an address', async () => {
+  assert.equal(DEFAULT_SERVER, 'http://82.157.149.117:8080');
+  assert.equal(serverAddress(DEFAULT_SERVER), DEFAULT_SERVER);
+  const transport = new Transport(); const vault = new Vault();
+  await OnlineClient.authenticate(transport, vault, DEFAULT_SERVER, 'xiaoman', 'test-password');
+  assert.equal(transport.calls[0].baseUrl, DEFAULT_SERVER);
+});
+
 test('login saves only a session in the vault; later requests use the session bearer', async () => {
   const { vault, transport, client } = await fixture();
   assert.equal(vault.value.baseUrl, 'http://127.0.0.1:3000'); assert.equal(vault.value.token, token);
@@ -47,6 +55,15 @@ test('device secure-storage failure revokes the new session without plaintext fa
   assert.equal(vault.value, undefined);
   assert.equal(transport.calls.at(-1).path, '/api/v1/auth/logout');
   assert.equal(transport.calls.at(-1).body, '{}');
+});
+
+test('resuming an upgraded install reuses the fixed cloud address', async () => {
+  const { vault, transport } = await fixture();
+  const restored = await OnlineClient.resume(transport, vault, DEFAULT_SERVER);
+  assert.ok(restored);
+  assert.equal(restored.address(), DEFAULT_SERVER);
+  await restored.state();
+  assert.equal(transport.calls.at(-1).baseUrl, DEFAULT_SERVER);
 });
 
 test('resume uses the vault and expires old sessions without network calls', async () => {

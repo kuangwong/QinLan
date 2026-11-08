@@ -4,7 +4,7 @@ import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { KeyboardAvoidMode, LengthMetrics } from '@kit.ArkUI';
 import { AppState, GeneratedName, Library, NameMode, NameRecord, Person, Task, TaskFilter, TaskList, dateKey, localDue, validDue } from '../domain/Models';
 import { LocalStore } from '../domain/LocalStore';
-import { OnlineClient } from '../domain/OnlineClient';
+import { DEFAULT_SERVER, OnlineClient } from '../domain/OnlineClient';
 import { RecoveryAction, recoveryAction } from '../domain/ApiFailure';
 import { Rules } from '../domain/Rules';
 import { FileStorage } from '../services/FileStorage';
@@ -55,7 +55,6 @@ struct Index {
   @State private reminderStatus: string = '正在检查系统提醒';
   @State private reminderCleanupNeeded: boolean = false;
   @State private online: boolean = false;
-  @State private serverUrl: string = '';
   @State private username: string = '';
   @State private password: string = '';
   @State private accountName: string = '';
@@ -97,10 +96,9 @@ struct Index {
   private async initialize(): Promise<void> {
     this.busy = true; this.error = '';
     try {
-      this.client = await OnlineClient.resume(new HttpTransport(), new AssetSessionVault());
+      this.client = await OnlineClient.resume(new HttpTransport(), new AssetSessionVault(), DEFAULT_SERVER);
       this.syncing = false;
       if (this.client) {
-        this.serverUrl = this.client.address();
         this.data = await this.client.state(); this.online = true; this.ready = true; this.refreshRequired = false;
         this.resetView(); this.startPolling();
         await this.refreshReminders();
@@ -130,13 +128,13 @@ struct Index {
     try {
       if (this.registerMode && !this.accountName.trim()) throw new Error('请填写成员昵称');
       this.client = await OnlineClient.authenticate(new HttpTransport(), new AssetSessionVault(),
-        this.serverUrl, this.username, this.password, this.registerMode ? this.accountName : '');
+        DEFAULT_SERVER, this.username, this.password, this.registerMode ? this.accountName : '');
       this.syncing = false;
       this.password = '';
       this.data = await this.client.state(); this.online = true; this.ready = true; this.screen = '';
       this.refreshRequired = false; this.resetView(); this.startPolling();
       await this.refreshReminders();
-    } catch (error) { this.error = (error as Error).message || '连接失败，请检查服务地址后重试'; }
+    } catch (error) { this.error = (error as Error).message || '连接失败，请检查网络后重试'; }
     finally { this.busy = false; }
   }
 
@@ -813,12 +811,11 @@ struct Index {
     Scroll() {
       Column({ space: 18 }) {
         this.heading('让日常，多一点美好。', this.registerMode ? '创建账号，和熟悉的人一起完成小事。' : '登录拾日，拾起你的小日常。')
+        Text(`协作服务：${DEFAULT_SERVER}`).fontSize(12).fontColor('#7A857A').width('100%')
         if (this.reminderCleanupNeeded) {
           Text(this.reminderStatus).fontSize(13).fontColor('#A64940').lineHeight(22)
           this.secondary('重试清除旧提醒', () => this.refreshReminders())
         }
-        Text('服务地址').fontSize(13).width('100%')
-        TextInput({ text: this.serverUrl, placeholder: '例如 http://192.168.1.10:3000' }).onChange((value: string) => this.serverUrl = value).accessibilityText('协作服务地址，必填')
         Text('用户名').fontSize(13).width('100%')
         TextInput({ text: this.username, placeholder: '3–30 位字母、数字或下划线' }).maxLength(30).onChange((value: string) => this.username = value).accessibilityText('用户名，必填')
         Text('密码').fontSize(13).width('100%')
@@ -832,7 +829,7 @@ struct Index {
         this.secondary('重试上次连接', () => this.initialize())
         this.secondary('清除本机登录信息', () => this.clearSession())
         this.secondary('先体验本机版本', () => this.startLocal())
-        Text('联网模式需要连接你部署的协作服务。服务地址填写开发电脑的局域网 IP；本机体验的数据不会自动上传。').fontSize(12).fontColor('#7A857A').lineHeight(22)
+        Text('联网模式会连接内置的拾日云服务，无需填写地址；本机体验的数据不会自动上传。').fontSize(12).fontColor('#7A857A').lineHeight(22)
       }.padding(24).width('100%').constraintSize({ maxWidth: 680 }).enabled(!this.busy)
     }.layoutWeight(1).width('100%')
   }

@@ -21,7 +21,7 @@ export class HttpTransport implements ApiTransport {
       return raw;
     } catch (error) {
       if (error instanceof ApiFailure) throw error;
-      throw new ApiFailure(0, 'NETWORK_ERROR', '无法连接协作服务，请检查网络与服务地址。当前输入已保留，可稍后重试。');
+      throw new ApiFailure(0, 'NETWORK_ERROR', '无法连接协作服务，请检查网络后重试。当前输入已保留，可稍后重试。');
     } finally { connection.destroy(); }
   }
 }

@@ -1,0 +1,13 @@
+.git
+.gitignore
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.env
+**/.env
+.env.*
+**/.env.*
+harmony
+server/tests
+原型/tests
+原型/prototype.html
